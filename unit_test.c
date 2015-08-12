@@ -4,6 +4,8 @@
 #include <string.h>
 #include <sys/time.h>
 #include <sys/select.h>
+#include <unistd.h>
+#include <getopt.h>
 
 #include "unit_test.h"
 
@@ -56,12 +58,14 @@
 #endif
 
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
+#define MAX(x, y) ((x) < (y) ? (y) : (x))
 #define MAX_APP_NAME_SZ 256
 
 #define UT_DISABLED(tests, t) ((tests)->is_disabled && \
 	(tests)->is_disabled((t)->disabled))
 
 #define LIST_TEST -1
+#define RUN_ALL_TEST 0
 
 typedef int (*vio_t)(const char *format, va_list ap);
 
@@ -197,7 +201,7 @@ static int list_test(struct unit_test *ut)
 	p_colour(C_HIGHLIGHT, "%s Unit Tests%s%s%s\n", ut->description,
 		list_comment ? " (" : "", list_comment ? list_comment : "",
 		list_comment ? ")" : "");
-	for (i = 0; i < count - 1; i++) {
+	for (i = 0; i < count; i++) {
 		struct single_test *t = &tests[i];
 		int is_disabled = UT_DISABLED(ut, t);
 
@@ -229,9 +233,9 @@ static int unit_test(struct unit_test *ut, int action)
 		return 0;
 	}
 
-	if (!action) {
+	if (action == RUN_ALL_TEST) {
 		from = 0;
-		to = ut->count - 1;
+		to = ut->count;
 	} else {
 		from = action - 1;
 		to = action;
@@ -315,71 +319,138 @@ static void do_list_tests(void)
 
 int main(int argc, char **argv)
 {
-	int i;
+	int i, arg;
+	char *optstring = "hlt:";
+	struct option longopts[] = {
+		{
+			.name = "help",
+			.val = 'h',
+			.has_arg = no_argument,
+			.flag = NULL,
+		},
+		{
+			.name = "list",
+			.val = 'l',
+			.has_arg = no_argument,
+			.flag = NULL,
+		},
+		{
+			.name = "test",
+			.val = 't',
+			.has_arg = required_argument,
+			.flag = NULL,
+		},
+		{ 0 }
+	};
+	enum {
+		arg_none,
+		arg_help,
+		arg_list,
+		arg_test,
+	} argtype = arg_none;
+	struct unit_test *ut;
+
+	while ((arg = getopt_long(argc, argv, optstring, longopts, NULL)) !=
+		-1) {
+		switch(arg) {
+		case 'h':
+			if (argtype != arg_none)
+				goto err_arg;
+			argtype = arg_help;
+
+			test_usage(argv[0]);
+			return 0;
+		case 'l':
+			if (argtype != arg_none)
+				goto err_arg;
+			argtype = arg_list;
+
+			/* list all tests */
+			if (argc == 2) {
+				do_list_tests();
+				break;
+			}
+
+			/* list specific tests */
+			for (i = 2; i < argc; i++) {
+				ut = name2ut(argv[i]);
+				if (!ut) {
+					printf("Error: unknown unit test - "
+						"%s\n", argv[i]);
+					continue;
+				}
+
+				unit_test(ut, LIST_TEST);
+			}
+			break;
+		case 't':
+			if (argtype != arg_none && argtype != arg_test)
+				goto err_arg;
+			argtype = arg_test;
+
+			/* handle a specified unit test */
+			if (!(ut = name2ut(optarg))) {
+				printf("Error: unknown unit test - %s\n",
+					optarg);
+				break;
+			}
+
+			/* run all its tests */
+			if (optind == argc || !strcmp(argv[optind], "-t") ||
+				!strncmp(argv[optind], "--test",
+					MAX(strlen(argv[optind]), 3))) {
+				unit_test(ut, RUN_ALL_TEST);
+				break;
+			}
+
+			/* run a specified selection of its tests */
+			while (optind < argc) {
+				int test;
+				char *err;
+
+				test = strtol(argv[optind], &err, 10);
+				if (!*err) {
+					optind++;
+
+					if (!test || test > ut->count) {
+						printf("Error: %s out of " \
+							"range - %d\n", optarg,
+							test);
+						continue;
+					}
+				} else {
+					printf("Error: not a test number: " \
+						"'%s'\n", argv[optind]);
+					break;
+				}
+
+				unit_test(ut, test);
+			}
+			break;
+		default:
+			test_usage(argv[0]);
+			return -1;
+		}
+	}
 
 	/* run all tests */
 	if (argc == 1) {
 		for (i = 0; i < ARRAY_SZ(tests); i++)
 			unit_test(tests[i], 0);
 		return 0;
-	}
-
-	/* help */
-	if (!strcmp(argv[1], "help")) {
-		test_usage(argv[0]);
-		return 0;
-	}
-
-	/* list tests */
-	if (!strcmp(argv[1], "list")) {
-		/* list all tests */
-		if (argc == 2) {
-			do_list_tests();
-			return 0;
-		}
-
-		/* list specific tests */
-		for (i = 2; i < argc; i++) {
-			struct unit_test *ut = name2ut(argv[i]);
-
-			if (!ut)
-				continue;
-
-			unit_test(ut, LIST_TEST);
-		}
-
-		return 0;
-	}
-
-	/* run tests */
-	for (i = 1; i < argc; i++) {
-		struct unit_test *ut = name2ut(argv[i]);
-		int action = 0;
-
-		if (!ut)
-			continue;
-
-		/* possibly run a specific test */
-		if (i < argc) {
-			int next_arg;
-			char *err;
-
-			next_arg = strtol(argv[i + 1], &err, 10);
-			if (!*err) {
-				action = next_arg;
-				i++;
-
-				if (!action || action > ut->count) {
-					printf("Error: %s out of range - %d\n",
-							argv[i], action);
-					continue;
-				}
-			}
-		}
-
-		unit_test(ut, action);
+	} else if (argtype == arg_none) {
+		printf("Error: unknown arguments - ");
+		for (i = 1; i < argc ;i++)
+			printf("%s ", argv[i]);
+		printf("\n");
+		return -1;
 	}
 
 	return 0;
+
+err_arg:
+	printf("Error: incompatible argument combination\n");
+	return -1;
+
 }
 
