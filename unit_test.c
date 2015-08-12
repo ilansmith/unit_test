@@ -61,6 +61,8 @@
 #define UT_DISABLED(tests, t) ((tests)->is_disabled && \
 	(tests)->is_disabled((t)->disabled))
 
+#define LIST_TEST -1
+
 typedef int (*vio_t)(const char *format, va_list ap);
 
 #define UNIT_TEST_DECLERATIONS
@@ -104,13 +106,33 @@ static int p_colour(char *colour, char *fmt, ...)
 	return ret;
 }
 
-static void p_test_summery(int total, int passed, int failed, int known_issues,
-		int disabled, char *summery_comment)
+static struct unit_test *name2ut(char *name)
 {
-	printf("\ntest summery%s%s%s\n", summery_comment ? " (" : "",
+	int i;
+
+	for (i = 0; i < ARRAY_SZ(tests) && strcmp(name, tests[i]->name); i++);
+
+	if (i == ARRAY_SZ(tests)) {
+		printf("Error: '%s' is not a valid test name\n", name);
+		return NULL;
+	}
+
+	return tests[i];
+}
+
+static void p_test_summery(char *description, int total, int passed, int failed,
+	int known_issues, int disabled, char *summery_comment)
+{
+	int i, len;
+
+	len = printf("\n%s Test Summery%s%s%s\n", description,
+		summery_comment ? " (" : "",
 		summery_comment ? summery_comment : "", summery_comment ?
 		")" : "");
-	printf("------------\n");
+	for (i = 0; i < len - 2; i++)
+		printf("-");
+	printf("\n");
+
 	printf("%stotal:        %i%s\n", C_HIGHLIGHT, total, C_NORMAL);
 	printf("passed:       %i\n", passed);
 	printf("failed:       %i\n", failed);
@@ -148,84 +170,31 @@ static void test_usage(char *path)
 		app, app, app, app);
 }
 
-static int test_getarg(char *arg, int *arg_ival, int min, int max)
+static void test_pre_post(int pre, char *description, void(*init)(void))
 {
-	char *err;
-
-	*arg_ival = strtol(arg, &err, 10);
-	if (*err)
-		return -1;
-	if (*arg_ival < min || *arg_ival > max) {
-		printf("test number out of range: %i\n", *arg_ival);
-		return -1;
-	}
-	return 0;
-}
-
-static int test_getargs(int argc, char *argv[], int *from, int *to, int max)
-{
-	if (argc > 3) {
-		test_usage(argv[0]);
-		return -1;
-	}
-
-	if (argc == 1) {
-		*from = 0;
-		*to = max;
-		ask_user = 1;
-		return 0;
-	}
-
-	/* 2 <= argc <= 3*/
-	if (test_getarg(argv[1], from, 1, max)) {
-		test_usage(argv[0]);
-		return -1;
-	}
-
-	if (argc == 2) {
-		*to = *from;
-	} else { /* argc == 3 */
-		if (test_getarg(argv[2], to, *from, max)) {
-			test_usage(argv[0]);
-			return -1;
-		}
-	}
-
-	(*from)--; /* map test number to table index */
-	return 0;
-}
-
-static void test_pre_post(int pre, void(*init)(int argc, char *argv[]),
-	int argc, char *argv[])
-{
-	p_colour(C_HIGHLIGHT, "Tests %s\n", pre ? "Init" : "Uninit");
-	init(argc, argv);
+	p_colour(C_HIGHLIGHT, "%s %s\n", description, pre ? "Init" : "Uninit");
+	init();
 	if (pre)
 		printf("\n");
 }
 
-static void test_init(void(*init)(int argc, char *argv[]), int argc,
-	char *argv[])
+static void test_init(char *description, void(*init)(void))
 {
-	test_pre_post(1, init, argc, argv);
+	test_pre_post(1, description, init);
 }
 
-static void test_uninit(void(*init)(int argc, char *argv[]), int argc,
-	char *argv[])
+static void test_uninit(char *description, void(*init)(void))
 {
-	test_pre_post(0, init, argc, argv);
+	test_pre_post(0, description, init);
 }
 
-static int is_list_tests(int argc, char *argv[], struct unit_test *ut)
+static int list_test(struct unit_test *ut)
 {
 	int i, count = ut->count;
 	char *list_comment = ut->list_comment;
 	struct single_test *tests = ut->tests;
 
-	if (argc != 2 || strcmp(argv[1], "list"))
-		return 0;
-
-	p_colour(C_HIGHLIGHT, "%s unit tests%s%s%s\n", app_name(argv[0]),
+	p_colour(C_HIGHLIGHT, "%s Unit Tests%s%s%s\n", ut->description,
 		list_comment ? " (" : "", list_comment ? list_comment : "",
 		list_comment ? ")" : "");
 	for (i = 0; i < count - 1; i++) {
@@ -248,22 +217,36 @@ static int is_list_tests(int argc, char *argv[], struct unit_test *ut)
 	return 1;
 }
 
-static int unit_test(int argc, char *argv[], struct unit_test *ut)
+static int unit_test(struct unit_test *ut, int action)
 {
 	struct single_test *t;
-	int from, to, max = ut->count, ret;
+	int from, to, ret;
 	int total = 0, disabled = 0, passed = 0, failed = 0, known_issues = 0;
+	int len, i;
 
-	if (is_list_tests(argc, argv, ut))
+	if (action == LIST_TEST) {
+		list_test(ut);
 		return 0;
+	}
+
+	if (!action) {
+		from = 0;
+		to = ut->count - 1;
+	} else {
+		from = action - 1;
+		to = action;
+	}
+
+	/* print unit test description as header */
+	len = printf(C_HIGHLIGHT "%s Unit Tests\n", ut->description);
+	for (i = 0; i < len - 6; i++)
+		printf("-");
+	printf("\n"  C_NORMAL);
 
 	if (ut->tests_init)
-		test_init(ut->tests_init, argc, argv);
+		test_init(ut->description, ut->tests_init);
 
-	if (test_getargs(argc, argv, &from, &to, max - 1))
-		return -1;
-
-	for (t = &ut->tests[from]; t < ut->tests + MIN(to, max); t++) {
+	for (t = &ut->tests[from]; t < ut->tests + to; t++) {
 		first_comment = 1;
 		total++;
 		p_colour(C_HIGHLIGHT, "%i. %s ", from + total, t->description);
@@ -305,19 +288,97 @@ static int unit_test(int argc, char *argv[], struct unit_test *ut)
 	}
 
 	if (ut->tests_uninit)
-		test_uninit(ut->tests_uninit, argc, argv);
+		test_uninit(ut->description, ut->tests_uninit);
 
-	p_test_summery(total, passed, failed, known_issues, disabled,
-		ut->summery_comment);
+	p_test_summery(ut->description, total, passed, failed, known_issues,
+		disabled, ut->summery_comment);
 	return 0;
+}
+
+static void do_list_tests(void)
+{
+	int i;
+
+	/* print header */
+	printf(C_HIGHLIGHT "%-5s %-30s %s\n", "num", "description",
+			"name");
+	for (i = 0; i < 45; i++)
+		printf("-");
+	printf("\n" C_NORMAL);
+
+	/* list tests */
+	for (i = 0; i < ARRAY_SZ(tests); i++) {
+		printf("%3.d.  %-30s %s\n", i+1, tests[i]->description,
+				tests[i]->name);
+	}
 }
 
 int main(int argc, char **argv)
 {
 	int i;
 
-	for (i = 0; i < ARRAY_SZ(tests); i++)
-		unit_test(argc, argv, tests[i]);
+	/* run all tests */
+	if (argc == 1) {
+		for (i = 0; i < ARRAY_SZ(tests); i++)
+			unit_test(tests[i], 0);
+		return 0;
+	}
+
+	/* help */
+	if (!strcmp(argv[1], "help")) {
+		test_usage(argv[0]);
+		return 0;
+	}
+
+	/* list tests */
+	if (!strcmp(argv[1], "list")) {
+		/* list all tests */
+		if (argc == 2) {
+			do_list_tests();
+			return 0;
+		}
+
+		/* list specific tests */
+		for (i = 2; i < argc; i++) {
+			struct unit_test *ut = name2ut(argv[i]);
+
+			if (!ut)
+				continue;
+
+			unit_test(ut, LIST_TEST);
+		}
+
+		return 0;
+	}
+
+	/* run tests */
+	for (i = 1; i < argc; i++) {
+		struct unit_test *ut = name2ut(argv[i]);
+		int action = 0;
+
+		if (!ut)
+			continue;
+
+		/* possibly run a specific test */
+		if (i < argc) {
+			int next_arg;
+			char *err;
+
+			next_arg = strtol(argv[i + 1], &err, 10);
+			if (!*err) {
+				action = next_arg;
+				i++;
+
+				if (!action || action > ut->count) {
+					printf("Error: %s out of range - %d\n",
+							argv[i], action);
+					continue;
+				}
+			}
+		}
+
+		unit_test(ut, action);
+	}
 
 	return 0;
 }

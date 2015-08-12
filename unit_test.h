@@ -13,12 +13,14 @@ struct single_test {
 };
 
 struct unit_test {
+	char *name;
+	char *description;
 	struct single_test *tests;
 	int count;
 	char *list_comment;
 	char *summery_comment;
-	void (*tests_init)(int argc, char *argv[]);
-	void (*tests_uninit)(int argc, char *argv[]);
+	void (*tests_init)(void);
+	void (*tests_uninit)(void);
 	int (*is_disabled)(int flags);
 	void (*pre_test)(void);
 	void (*post_test)(void);
