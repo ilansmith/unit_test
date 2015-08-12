@@ -174,64 +174,59 @@ static void test_usage(char *path)
 		app, app, app, app);
 }
 
-static void test_pre_post(int pre, char *description, void(*init)(void))
+static int test_pre_post(int pre, struct unit_test *ut)
 {
-	p_colour(C_HIGHLIGHT, "%s %s\n", description, pre ? "Init" : "Uninit");
-	init();
-	if (pre)
+	int ret;
+	int (*func)(void) = pre? ut->tests_init : ut->tests_uninit;
+
+	if (!func)
+		return 0;
+
+	if (!pre)
 		printf("\n");
-}
 
-static void test_init(char *description, void(*init)(void))
-{
-	test_pre_post(1, description, init);
-}
+	p_colour(C_HIGHLIGHT, "%s %s\n", ut->description,
+		pre ? "Init" : "Uninit");
+	ret = func();
 
-static void test_uninit(char *description, void(*init)(void))
-{
-	test_pre_post(0, description, init);
-}
-
-static int list_test(struct unit_test *ut)
-{
-	int i, count = ut->count;
-	char *list_comment = ut->list_comment;
-	struct single_test *tests = ut->tests;
-
-	p_colour(C_HIGHLIGHT, "%s Unit Tests%s%s%s\n", ut->description,
-		list_comment ? " (" : "", list_comment ? list_comment : "",
-		list_comment ? ")" : "");
-	for (i = 0; i < count; i++) {
-		struct single_test *t = &tests[i];
-		int is_disabled = UT_DISABLED(ut, t);
-
-		printf("%i. ", i + 1);
-		p_colour(is_disabled ? C_GREY : C_NORMAL, "%s",
-				t->description);
-		if (is_disabled) {
-			p_colour(C_CYAN, " (disabled)");
-		} else if (t->known_issue) {
-			p_colour(C_BLUE, " (known issue: ");
-			p_colour(C_GREY, t->known_issue);
-			p_colour(C_BLUE, ")");
-		}
-		printf("\n");
+	if (ret) {
+		printf(C_RED "%s failed\n" C_NORMAL,
+			pre ? "tests_init" : "tests_uninit");
 	}
-
-	return 1;
+	return ret;
 }
 
+static int test_init(struct unit_test *ut)
+{
+	return test_pre_post(1, ut);
+}
+
+static int test_uninit(struct unit_test *ut)
+{
+	return test_pre_post(0, ut);
+}
+
+static int pre_test(struct unit_test *ut)
+{
+	if (!ut->pre_test)
+		return 0;
+
+	return ut->pre_test();
+}
+
+static int post_test(struct unit_test *ut)
+{
+	if (!ut->post_test)
+		return 0;
+
+	return ut->post_test();
+}
 static int unit_test(struct unit_test *ut, int action)
 {
 	struct single_test *t;
 	int from, to, ret;
 	int total = 0, disabled = 0, passed = 0, failed = 0, known_issues = 0;
 	int len, i;
-
-	if (action == LIST_TEST) {
-		list_test(ut);
-		return 0;
-	}
 
 	if (action == RUN_ALL_TEST) {
 		from = 0;
@@ -247,8 +242,8 @@ static int unit_test(struct unit_test *ut, int action)
 		printf("-");
 	printf("\n"  C_NORMAL);
 
-	if (ut->tests_init)
-		test_init(ut->description, ut->tests_init);
+	if (test_init(ut))
+		return -1;
 
 	for (t = &ut->tests[from]; t < ut->tests + to; t++) {
 		first_comment = 1;
@@ -274,8 +269,11 @@ static int unit_test(struct unit_test *ut, int action)
 			continue;
 		}
 
-		if (ut->pre_test)
-			ut->pre_test();
+		if (pre_test(ut)) {
+			printf(C_RED "pre test failed, continuing...\n"
+				C_NORMAL);
+			continue;
+		}
 
 		if ((ret = t->func())) {
 			p_colour(C_RED, "Failed");
@@ -285,21 +283,24 @@ static int unit_test(struct unit_test *ut, int action)
 			passed++;
 		}
 
-		if (ut->post_test)
-			ut->post_test();
+		if (post_test(ut)) {
+			printf(C_RED "post test failed, continuing...\n"
+				C_NORMAL);
+			continue;
+		}
 
 		printf("\n");
 	}
 
-	if (ut->tests_uninit)
-		test_uninit(ut->description, ut->tests_uninit);
+	if (test_uninit(ut))
+		return -1;
 
 	p_test_summery(ut->description, total, passed, failed, known_issues,
 		disabled, ut->summery_comment);
 	return 0;
 }
 
-static void do_list_tests(void)
+static void list_tests_all(void)
 {
 	int i;
 
@@ -315,6 +316,41 @@ static void do_list_tests(void)
 		printf("%3.d.  %-30s %s\n", i+1, tests[i]->description,
 				tests[i]->name);
 	}
+}
+
+static void list_tests_single(struct unit_test *ut)
+{
+	int i, count = ut->count;
+	char *list_comment = ut->list_comment;
+	struct single_test *tests = ut->tests;
+
+	p_colour(C_HIGHLIGHT, "%s Unit Tests%s%s%s\n", ut->description,
+		list_comment ? " (" : "", list_comment ? list_comment : "",
+		list_comment ? ")" : "");
+	for (i = 0; i < count; i++) {
+		struct single_test *t = &tests[i];
+		int is_disabled = UT_DISABLED(ut, t);
+
+		printf("%i. ", i + 1);
+		p_colour(is_disabled ? C_GREY : C_NORMAL, "%s",
+				t->description);
+		if (is_disabled) {
+			p_colour(C_CYAN, " (disabled)");
+		} else if (t->known_issue) {
+			p_colour(C_BLUE, " (known issue: ");
+			p_colour(C_GREY, t->known_issue);
+			p_colour(C_BLUE, ")");
+		}
+		printf("\n");
+	}
+}
+
+static void list_tests(struct unit_test *ut)
+{
+	if (!ut)
+		list_tests_all();
+	else
+		list_tests_single(ut);
 }
 
 int main(int argc, char **argv)
@@ -367,7 +403,7 @@ int main(int argc, char **argv)
 
 			/* list all tests */
 			if (argc == 2) {
-				do_list_tests();
+				list_tests(NULL);
 				break;
 			}
 
@@ -380,7 +416,7 @@ int main(int argc, char **argv)
 					continue;
 				}
 
-				unit_test(ut, LIST_TEST);
+				list_tests(ut);
 			}
 			break;
 		case 't':
