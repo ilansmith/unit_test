@@ -8,7 +8,7 @@
 struct single_test {
 	char *description;
 	char *known_issue;
-	int (* func)(void);
+	int (*func)(void);
 	int disabled;
 };
 
@@ -19,11 +19,11 @@ struct unit_test {
 	int count;
 	char *list_comment;
 	char *summery_comment;
-	void (*tests_init)(void);
-	void (*tests_uninit)(void);
+	int (*tests_init)(void);
+	int (*tests_uninit)(void);
 	int (*is_disabled)(int flags);
-	void (*pre_test)(void);
-	void (*post_test)(void);
+	int (*pre_test)(void);
+	int (*post_test)(void);
 };
 
 extern int ask_user;
