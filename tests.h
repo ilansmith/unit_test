@@ -3,7 +3,11 @@
 #if defined(UNIT_TEST_DECLERATIONS)
 #define UNIT_TEST(test) extern struct unit_test test;
 #elif defined(UNIT_TEST_ENTRIES)
-#define UNIT_TEST(test) &test,
+#define UNIT_TEST(test) \
+	{ \
+		.ut = &test, \
+		.map = NULL, \
+	},
 #endif
 
 /* Unit Tests */
