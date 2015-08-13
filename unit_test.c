@@ -31,6 +31,10 @@
 #define C_NORMAL "\033[00;00;00m"
 #undef C_HIGHLIGHT
 #define C_HIGHLIGHT "\033[01m"
+#undef C_ITALIC
+#define C_ITALIC "\033[03m"
+#undef C_UNDERLINE
+#define C_UNDERLINE "\033[04m"
 #else
 #undef C_CYAN
 #define C_CYAN ""
@@ -46,6 +50,10 @@
 #define C_NORMAL ""
 #undef C_HIGHLIGHT
 #define C_HIGHLIGHT ""
+#undef C_UNDERLINE
+#define C_UNDERLINE ""
+#undef C_ITALIC
+#define C_ITALIC ""
 #endif
 
 #ifndef CURSOR_POS_SAVE
@@ -73,11 +81,16 @@
 
 typedef int (*vio_t)(const char *format, va_list ap);
 
+struct unit_test_wrapper {
+	struct unit_test *ut;
+	unsigned long *map;
+};
+
 #define UNIT_TEST_DECLERATIONS
 #include "tests.h"
 
 #define UNIT_TEST_ENTRIES
-static struct unit_test *tests[] = {
+static struct unit_test_wrapper all_tests[] = {
 #include "tests.h"
 };
 
@@ -114,18 +127,19 @@ static int p_colour(char *colour, char *fmt, ...)
 	return ret;
 }
 
-static struct unit_test *name2ut(char *name)
+static struct unit_test_wrapper *name2ut(char *name)
 {
 	int i;
 
-	for (i = 0; i < ARRAY_SZ(tests) && strcmp(name, tests[i]->name); i++);
+	for (i = 0; i < ARRAY_SZ(all_tests) &&
+		strcmp(name, all_tests[i].ut->name); i++);
 
-	if (i == ARRAY_SZ(tests)) {
+	if (i == ARRAY_SZ(all_tests)) {
 		printf("Error: '%s' is not a valid test name\n", name);
 		return NULL;
 	}
 
-	return tests[i];
+	return all_tests + i;
 }
 
 static void p_test_summery(char *description, int total, int passed, int failed,
@@ -167,15 +181,46 @@ static void test_usage(char *path)
 {
 	char *app = app_name(path);
 
-	printf("usage:\n"
-		"%s               - run all tests\n"
-		"  or\n"
-		"%s <test>        - run a specific test\n"
-		"  or\n"
-		"%s <from> <to>   - run a range of tests\n"
-		"  or\n"
-		"%s list          - list all tests\n",
-		app, app, app, app);
+	printf(C_HIGHLIGHT "%s [OPTIONS]" C_NORMAL \
+			"     - run kernel unit tests\n" \
+		"\n" \
+		"  Where OPTIONS:\n"
+		"\n" \
+		C_HIGHLIGHT \
+		"-l, --list [name1 name2 ...]" \
+		C_NORMAL "\n" \
+		"    List available unit tests.\n" \
+		"\n" \
+		"    If no tests are specified then a summary of all " \
+			"available tests is listed.\n" \
+		"\n" \
+		"    Specific test names may be used in which case they will " \
+			"be listed in more detail.\n"
+		"    The available test names are those listed when using " \
+			C_UNDERLINE "--list" C_NORMAL " without arguments.\n" \
+		"\n" \
+		C_HIGHLIGHT \
+		"-t, --test <name> [#1 [#2 [...]]]" \
+		C_NORMAL "\n"
+		"    Specify a specific unit test to run.\n" \
+		"\n" \
+		"    " C_ITALIC "name" C_NORMAL " is given by using the " \
+			C_UNDERLINE "--list" C_NORMAL " option without " \
+			"arguments.\n" \
+		"    If no test ids are provided, then all the tests of " \
+			C_ITALIC "name" C_NORMAL " are run.\n" \
+		"\n" \
+		"    Execution can be limited to running a subset of " \
+			C_ITALIC "name" C_NORMAL "'s tests.\n"
+		"    This is done by specific test numbers as are given by " \
+			C_UNDERLINE "--list " C_ITALIC "name" C_NORMAL ".\n" \
+		"\n" \
+		C_HIGHLIGHT "-h, --help" C_NORMAL "\n" \
+		"    Print this help message and exit.\n" \
+		"\n" \
+		C_HIGHLIGHT \
+		"If no options are used, %s runs all the tests." \
+		C_NORMAL "\n", app, app);
 }
 
 static int test_pre_post(int pre, struct unit_test *ut)
@@ -237,20 +282,52 @@ static int post_test(struct unit_test *ut)
 
 	return ut->post_test();
 }
-static int unit_test(struct unit_test *ut, int action)
+
+static int setup_map(struct unit_test_wrapper *wrapper)
 {
-	struct single_test *t;
-	int from, to, ret;
+	int size;
+
+	if (wrapper->map)
+		return 0;
+
+	size = (wrapper->ut->count + sizeof(unsigned long) - 1) /
+		sizeof(unsigned long);
+	if (!(wrapper->map = calloc(size, sizeof(unsigned long))))
+		return -1;
+
+	return 0;
+}
+
+static void teardown_map(struct unit_test_wrapper *wrapper)
+{
+	free(wrapper->map);
+	wrapper->map = NULL;
+}
+
+static void map_set_get(unsigned long **map, int *shift)
+{
+	int div = *shift/sizeof(unsigned long);
+
+	*map += div;
+	*shift -= div*sizeof(unsigned long);
+}
+
+static void map_set(unsigned long *map, int shift)
+{
+	map_set_get(&map, &shift);
+	*map |= 1 << shift;
+}
+
+static int map_get(unsigned long *map, int shift)
+{
+	map_set_get(&map, &shift);
+	return *map & 1 << shift ? 1 : 0;
+}
+
+static int unit_test(struct unit_test *ut, unsigned long *map)
+{
 	int total = 0, disabled = 0, passed = 0, failed = 0, known_issues = 0;
 	int len, i;
-
-	if (action == RUN_ALL_TEST) {
-		from = 0;
-		to = ut->count;
-	} else {
-		from = action - 1;
-		to = action;
-	}
 
 	/* print unit test description as header */
 	len = printf(C_HIGHLIGHT "%s Unit Tests\n", ut->description);
@@ -261,10 +338,16 @@ static int unit_test(struct unit_test *ut, int action)
 	if (test_init(ut))
 		return -1;
 
-	for (t = &ut->tests[from]; t < ut->tests + to; t++) {
+	for (i = 0; i < ut->count; i++) {
+		struct single_test *t;
+
+		if (map && !(map_get(map, i)))
+			continue;
+
+		t = ut->tests + i;
 		first_comment = 1;
 		total++;
-		p_colour(C_HIGHLIGHT, "%i. %s ", from + total, t->description);
+		p_colour(C_HIGHLIGHT, "%i. %s ", i + 1, t->description);
 		if (!t->func) {
 			p_colour(C_CYAN, "function does not exist\n");
 			return -1;
@@ -291,7 +374,7 @@ static int unit_test(struct unit_test *ut, int action)
 			continue;
 		}
 
-		if ((ret = t->func())) {
+		if ((t->func())) {
 			p_colour(C_RED, "Failed");
 			failed++;
 		} else {
@@ -328,9 +411,9 @@ static void list_tests_all(void)
 	printf("\n" C_NORMAL);
 
 	/* list tests */
-	for (i = 0; i < ARRAY_SZ(tests); i++) {
-		printf("%3.d.  %-30s %s\n", i+1, tests[i]->description,
-				tests[i]->name);
+	for (i = 0; i < ARRAY_SZ(all_tests); i++) {
+		printf("%3.d.  %-30s %s\n", i+1, all_tests[i].ut->description,
+			all_tests[i].ut->name);
 	}
 }
 
@@ -375,12 +458,6 @@ int main(int argc, char **argv)
 	char *optstring = "hlt:";
 	struct option longopts[] = {
 		{
-			.name = "help",
-			.val = 'h',
-			.has_arg = no_argument,
-			.flag = NULL,
-		},
-		{
 			.name = "list",
 			.val = 'l',
 			.has_arg = no_argument,
@@ -392,26 +469,25 @@ int main(int argc, char **argv)
 			.has_arg = required_argument,
 			.flag = NULL,
 		},
+		{
+			.name = "help",
+			.val = 'h',
+			.has_arg = no_argument,
+			.flag = NULL,
+		},
 		{ 0 }
 	};
 	enum {
 		arg_none,
-		arg_help,
 		arg_list,
 		arg_test,
+		arg_help,
 	} argtype = arg_none;
-	struct unit_test *ut;
+	struct unit_test_wrapper *wrapper;
 
 	while ((arg = getopt_long(argc, argv, optstring, longopts, NULL)) !=
 		-1) {
 		switch(arg) {
-		case 'h':
-			if (argtype != arg_none)
-				goto err_arg;
-			argtype = arg_help;
-
-			test_usage(argv[0]);
-			return 0;
 		case 'l':
 			if (argtype != arg_none)
 				goto err_arg;
@@ -425,33 +501,29 @@ int main(int argc, char **argv)
 
 			/* list specific tests */
 			for (i = 2; i < argc; i++) {
-				ut = name2ut(argv[i]);
-				if (!ut) {
+				wrapper = name2ut(argv[i]);
+				if (!wrapper) {
 					printf("Error: unknown unit test - "
 						"%s\n", argv[i]);
 					continue;
 				}
 
-				list_tests(ut);
+				list_tests(wrapper->ut);
 			}
 			break;
+
 		case 't':
 			if (argtype != arg_none && argtype != arg_test)
 				goto err_arg;
-			argtype = arg_test;
+			if (argtype == arg_test)
+				printf("\n");
+			else
+				argtype = arg_test;
 
 			/* handle a specified unit test */
-			if (!(ut = name2ut(optarg))) {
+			if (!(wrapper = name2ut(optarg))) {
 				printf("Error: unknown unit test - %s\n",
 					optarg);
-				break;
-			}
-
-			/* run all its tests */
-			if (optind == argc || !strcmp(argv[optind], "-t") ||
-				!strncmp(argv[optind], "--test",
-					MAX(strlen(argv[optind]), 3))) {
-				unit_test(ut, RUN_ALL_TEST);
 				break;
 			}
 
@@ -464,21 +536,45 @@ int main(int argc, char **argv)
 				if (!*err) {
 					optind++;
 
-					if (!test || test > ut->count) {
+					if (!test ||
+						test > wrapper->ut->count) {
 						printf("Error: %s out of " \
 							"range - %d\n", optarg,
 							test);
 						continue;
 					}
+
+					if (setup_map(wrapper)) {
+						printf("Error: out of " \
+							"memory\n");
+						return -1;
+					}
+
+					map_set(wrapper->map, test - 1);
 				} else {
-					printf("Error: not a test number: " \
-						"'%s'\n", argv[optind]);
+					if (strcmp(argv[optind], "-t") &&
+						strncmp(argv[optind], "--test",
+						MAX(strlen(argv[optind]), 3))) {
+						printf("Error: not a test " \
+							"number: '%s'\n",
+							argv[optind]);
+					}
 					break;
 				}
-
-				unit_test(ut, test);
 			}
+
+			unit_test(wrapper->ut, wrapper->map);
+			teardown_map(wrapper);
 			break;
+
+		case 'h':
+			if (argtype != arg_none)
+				goto err_arg;
+			argtype = arg_help;
+
+			test_usage(argv[0]);
+			return 0;
+
 		default:
 			test_usage(argv[0]);
 			return -1;
@@ -487,8 +583,11 @@ int main(int argc, char **argv)
 
 	/* run all tests */
 	if (argc == 1) {
-		for (i = 0; i < ARRAY_SZ(tests); i++)
-			unit_test(tests[i], 0);
+		for (i = 0; i < ARRAY_SZ(all_tests); i++) {
+			if (i)
+				printf("\n");
+			unit_test(all_tests[i].ut, 0);
+		}
 		return 0;
 	} else if (argtype == arg_none) {
 		printf("Error: unknown arguments - ");
