@@ -13,6 +13,10 @@
 /* Unit Tests */
 UNIT_TEST(ut_kernel)
 
+#ifdef CONFIG_LIB_SLW
+UNIT_TEST(ut_slw)
+#endif
+
 #undef UNIT_TEST_DECLERATIONS
 #undef UNIT_TEST_ENTRIES
 #undef UNIT_TEST
