@@ -11,6 +11,7 @@
 #endif
 
 /* Unit Tests */
+UNIT_TEST(ut_kernel)
 
 #undef UNIT_TEST_DECLERATIONS
 #undef UNIT_TEST_ENTRIES
