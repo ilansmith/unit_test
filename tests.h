@@ -17,6 +17,10 @@ UNIT_TEST(ut_kernel)
 UNIT_TEST(ut_slw)
 #endif
 
+#ifdef CONFIG_DEV_TREE
+UNIT_TEST(ut_dev_tree)
+#endif
+
 #undef UNIT_TEST_DECLERATIONS
 #undef UNIT_TEST_ENTRIES
 #undef UNIT_TEST
