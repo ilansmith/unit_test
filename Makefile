@@ -1,12 +1,9 @@
 CC=gcc
 AR=ar
 
-CONFIGS= \
-	 CONFIG_KUT_COLOURS=y
-
 CFLAGS+=-Werror -Wall -g \
-	$(patsubst %,-I%,$(INCLUDES)) \
-	$(patsubst %=y,-D%,$(filter %=y,$(strip $(CONFIGS))))
+	$(CONFIGS_Y:%=-D%=y) \
+	$(INCLUDES:%=-I%)
 
 OBJS=unit_test.o
 
