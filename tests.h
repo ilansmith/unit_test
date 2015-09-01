@@ -21,6 +21,10 @@ UNIT_TEST(ut_slw)
 UNIT_TEST(ut_dev_tree)
 #endif
 
+#if CONFIG_DEBUG_FS
+UNIT_TEST(ut_mmc_debugfs)
+#endif
+
 #undef UNIT_TEST_DECLERATIONS
 #undef UNIT_TEST_ENTRIES
 #undef UNIT_TEST
