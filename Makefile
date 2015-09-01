@@ -2,7 +2,7 @@ CC=gcc
 AR=ar
 
 CFLAGS+=-Werror -Wall -g \
-	$(CONFIGS_Y:%=-D%=y) \
+	$(CONFIGS_Y:%=-D%) \
 	$(INCLUDES:%=-I%)
 
 OBJS=unit_test.o
