@@ -7,6 +7,10 @@
 #include <unistd.h>
 #include <getopt.h>
 
+#include <linux/kut_mmzone.h>
+#include <linux/kut_bug.h>
+#include <linux/mmc/kut_host.h>
+
 #include "unit_test.h"
 
 /* unit_test.h should be included after the tested code's header files so that
@@ -196,8 +200,18 @@ static int test_pre_post(int pre, struct unit_test *ut)
 	return ret;
 }
 
+static void init_common(void)
+{
+	kut_bug_on_do_exit_set(false);
+	kut_mem_pressure_set(KUT_MEM_AVERAGE);
+	kut_host_index_reset();
+	srandom(0);
+}
+
 static int test_init(struct unit_test *ut)
 {
+	init_common();
+
 	return test_pre_post(1, ut);
 }
 
@@ -208,6 +222,8 @@ static int test_uninit(struct unit_test *ut)
 
 static int pre_test(struct unit_test *ut)
 {
+	init_common();
+
 	if (!ut->pre_test)
 		return 0;
 
