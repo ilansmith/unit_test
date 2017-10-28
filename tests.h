@@ -15,6 +15,10 @@
 UNIT_TEST(ut_slw)
 #endif
 
+#ifdef CONFIG_SDP
+UNIT_TEST(ut_sdp)
+#endif
+
 #undef UNIT_TEST_DECLERATIONS
 #undef UNIT_TEST_ENTRIES
 #undef UNIT_TEST
