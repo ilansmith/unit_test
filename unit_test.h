@@ -69,5 +69,6 @@ struct unit_test {
 	int (*post_single_test)(void);
 };
 
+extern int ask_user;
 #endif
 

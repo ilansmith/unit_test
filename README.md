@@ -9,7 +9,7 @@ The solution works best for kernel features which reside in their own git reposi
 
 Every kernel feature repository tested by kunit is expected to consist of at least:
 * Its implementation in code
-* A Ubuild file where its build policy is defined
+* A Kbuild file where its build policy is defined
 * An optional set of patches intended for injecting code into the kernel which allows it to interface with the feature
 * An additional \*.c file with kunit test implementations for the feature
 
@@ -136,13 +136,13 @@ The simplicity of adding new tests depends on there being sufficient mock and ut
 Adding a new *test package* to kunit requires:
 * Importing kernel feature and placing it in **ut**
 * Implementing a set of tests for the kunit framework<br>
-  The feature's test object-file must be added to the *obj-ut* target in the feature's *Ubuild* file
+  The feature's test object-file must be added to the *obj-ut* target in the feature's *Kbuild* file
 * In the [env](https://github.com/k-unit/env.git "Environment setup and build") repository
   * List the feature patches which are intended to be applied in the kernel/kunit to allow interfacing with it in *patches*. All patches listed in *patches* will be applied at **kernel/patches** during the project setup
   * Add any required `CONFIG=` entries to *build/kunit_defconfig*. This file
     gets copied to kunit root directory and renamed to *.config* at during setup
-  * Enable/Disable the building in of the feature in *build/Ubuild*. This file
-    gets copied to *ut/Ubuild* during setup
+  * Enable/Disable the building in of the feature in *build/Kbuild*. This file
+    gets copied to *ut/Kbuild* during setup
 * In the [core](https://github.com/k-unit/core "A framework for unit-testing kernel in user space") repository (this one)
   * Link each feature to the core for testing in *tests.h*
 

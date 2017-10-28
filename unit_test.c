@@ -7,12 +7,16 @@
 #include <unistd.h>
 #include <getopt.h>
 
+#include <linux/kut_mmzone.h>
+#include <linux/kut_bug.h>
+#include <linux/mmc/kut_host.h>
+
 #include "unit_test.h"
 
 /* unit_test.h should be included after the tested code's header files so that
  * if it defines any of the following definitions it should get precedence */
 
-#ifdef CONFIG_UT_COLOURS
+#ifdef CONFIG_KUT_COLOURS
 #undef C_CYAN
 #define C_CYAN "\033[01;36m"
 #undef C_RED
@@ -101,6 +105,8 @@ static struct unit_test_wrapper all_tests[] = {
 /* io functionality */
 int vscanf(const char *format, va_list ap);
 static int first_comment;
+
+int ask_user;
 
 static int vio_colour(vio_t vfunc, char *colour, char *fmt, va_list va)
 {
@@ -247,6 +253,9 @@ static int test_pre_post(int pre, struct unit_test *ut)
 
 static void init_common(void)
 {
+	kut_bug_on_do_exit_set(false);
+	kut_mem_pressure_set(KUT_MEM_AVERAGE);
+	kut_host_index_reset();
 	srandom(0);
 }
 
