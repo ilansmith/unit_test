@@ -11,6 +11,9 @@
 #endif
 
 /* Unit Tests */
+#ifdef CONFIG_SLW
+UNIT_TEST(ut_slw)
+#endif
 
 #undef UNIT_TEST_DECLERATIONS
 #undef UNIT_TEST_ENTRIES
