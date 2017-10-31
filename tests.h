@@ -19,6 +19,10 @@ UNIT_TEST(ut_slw)
 UNIT_TEST(ut_sdp)
 #endif
 
+#ifdef CONFIG_VECTOR
+UNIT_TEST(ut_vector)
+#endif
+
 #undef UNIT_TEST_DECLERATIONS
 #undef UNIT_TEST_ENTRIES
 #undef UNIT_TEST
