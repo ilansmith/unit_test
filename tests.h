@@ -25,6 +25,10 @@ UNIT_TEST(ut_dev_tree)
 UNIT_TEST(ut_mmc_debugfs)
 #endif
 
+#ifdef CONFIG_MMC_FFU
+UNIT_TEST(ut_ffu)
+#endif
+
 #undef UNIT_TEST_DECLERATIONS
 #undef UNIT_TEST_ENTRIES
 #undef UNIT_TEST
